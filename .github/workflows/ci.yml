@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: style
+      run: cargo fmt -- --check
+    - name: clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+  
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: test
+        run: cargo test --all-targets --all-features

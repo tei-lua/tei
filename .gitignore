@@ -8,3 +8,9 @@
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+# Sometimes written by VSCode, unclear when/why.
+.vscode/
+
+# macOS Finder metadata
+**/.DS_Store
