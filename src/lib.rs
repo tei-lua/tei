@@ -1,3 +1,7 @@
+#![feature(strict_provenance)]
+
+mod mem;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
