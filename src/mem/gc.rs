@@ -45,7 +45,7 @@ impl<'gc, T: 'gc> Gc<'gc, T> {
         let header_offset = mem::offset_of!(AllocationInner<T>, value) as isize;
         let ptr = (ptr as *mut T)
             .cast::<u8>()
-            .offset(header_offset)
+            .offset(-header_offset)
             .cast::<AllocationInner<T>>();
 
         Self {
