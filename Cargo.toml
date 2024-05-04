@@ -3,6 +3,6 @@ name = "tei"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "TEI is a flexible lua interpreter for Rust, designed to execute trusted code for augmenting applications."
+description = "TEI is a flexible Lua interpreter for Rust, designed to execute trusted code for augmenting applications."
 
 [dependencies]
