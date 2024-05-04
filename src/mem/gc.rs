@@ -1,12 +1,12 @@
 use super::managed::Managed;
-use super::ptr::{Invariant, AllocationInner};
-use std::ptr::NonNull;
+use super::ptr::{AllocationInner, Invariant};
 use std::fmt;
-use std::ops::Deref;
-use std::marker::PhantomData;
 use std::hash::{Hash, Hasher};
-use std::ptr;
+use std::marker::PhantomData;
 use std::mem;
+use std::ops::Deref;
+use std::ptr;
+use std::ptr::NonNull;
 
 /// A garbage collected pointer to a type T. Implements Copy, and is implemented as a plain machine
 /// pointer. You can only allocate `Gc` pointers through a `&HeapInterface<'gc>` inside a heap type,
@@ -29,8 +29,8 @@ impl<'gc, T: 'gc> Gc<'gc, T> {
     ///
     /// **SAFETY:**:
     /// It must be valid to dereference a `*mut U` that has come from casting a `*mut T`.
-    pub unsafe fn cast<U: 'gc>(this: Gc<'gc, T>) -> Self {
-        Self {
+    pub unsafe fn cast<U: 'gc>(this: Gc<'gc, T>) -> Gc<'gc, U> {
+        Gc {
             ptr: NonNull::cast(this.ptr),
             _invariant: PhantomData,
         }
@@ -92,7 +92,7 @@ impl<'gc, T: ?Sized + 'gc> Gc<'gc, T> {
 }
 
 impl<'gc, T: ?Sized + 'gc> Clone for Gc<'gc, T> {
-    fn clone(&self) -> Gc<'gc, T> {
+    fn clone(&self) -> Self {
         *self
     }
 }
