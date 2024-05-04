@@ -63,6 +63,7 @@ impl Allocation {
     pub(super) unsafe fn dealloc(self) {
         let layout = self.header().vtable().alloc_layout;
         let ptr = self.0.as_ptr() as *mut u8;
+
         // SAFETY: the pointer was allocated with this layout.
         alloc::dealloc(ptr, layout);
     }
