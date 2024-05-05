@@ -44,8 +44,7 @@ impl<'gc, T: 'gc> Gc<'gc, T> {
     pub unsafe fn from_ptr(ptr: *const T) -> Self {
         let header_offset = mem::offset_of!(AllocationInner<T>, value) as isize;
         let ptr = (ptr as *mut T)
-            .cast::<u8>()
-            .offset(-header_offset)
+            .byte_offset(-header_offset)
             .cast::<AllocationInner<T>>();
 
         Self {

@@ -1,3 +1,4 @@
+mod barrier;
 mod context;
 mod gc;
 mod gc_weak;
