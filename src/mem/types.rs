@@ -119,8 +119,8 @@ impl AllocationHeader {
         match tag::get::<0x3, _>(self.tagged_vtable.get()) {
             0x0 => GcColor::White,
             0x1 => GcColor::WhiteWeak,
-            0x2 => GcColor::Black,
-            _ => unreachable!(),
+            0x2 => GcColor::Grey,
+            _ => GcColor::Black,
         }
     }
 
@@ -130,7 +130,8 @@ impl AllocationHeader {
             match color {
                 GcColor::White => 0x0,
                 GcColor::WhiteWeak => 0x1,
-                GcColor::Black => 0x2,
+                GcColor::Grey => 0x2,
+                GcColor::Black => 0x3,
             },
         );
     }
@@ -153,8 +154,8 @@ impl AllocationHeader {
         tag::get::<0x8, _>(self.tagged_vtable.get()) != 0x0
     }
 
-    pub(super) fn set_live(&self, alive: bool) {
-        tag::set_bool::<0x8, _>(&self.tagged_vtable, alive);
+    pub(super) fn set_live(&self, live: bool) {
+        tag::set_bool::<0x8, _>(&self.tagged_vtable, live);
     }
 }
 
@@ -227,5 +228,6 @@ pub(super) type Invariant<'a> = PhantomData<Cell<&'a ()>>;
 pub(super) enum GcColor {
     White,
     WhiteWeak,
+    Grey,
     Black,
 }

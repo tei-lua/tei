@@ -5,5 +5,5 @@ pub unsafe trait Managed {
     where
         Self: Sized;
 
-    fn trace(&self, _cc: &Visitor) {}
+    fn trace(&self, _ctx: &Visitor) {}
 }

@@ -29,16 +29,17 @@ pub struct Finalization<'gc> {
 
 // TODO: add metrics for invoking GC
 // TODO: add tracing (see phaseguard)
-// TODO: use a seperate mark list for marked objects that need to be traversed
-// TODO: eliminate mark/sweep recursion
+// TODO: finalizers?
 pub(super) struct State {
     head: Cell<Option<Allocation>>,
+    grey: RefCell<Vec<Allocation>>,
 }
 
 impl State {
     pub(super) unsafe fn new() -> Self {
         Self {
             head: Cell::new(None),
+            grey: RefCell::new(Vec::new()),
         }
     }
 
@@ -47,7 +48,6 @@ impl State {
     }
 
     fn visitor_context(&self) -> &Visitor {
-        // SAFETY: `Visitor` is `repr(transparent)`
         unsafe { mem::transmute::<&Self, &Visitor>(self) }
     }
 
@@ -67,11 +67,133 @@ impl State {
             core::ptr::write(uninitialized.as_mut_ptr(), AllocationInner::new(header, t));
             let ptr =
                 NonNull::new_unchecked(Box::into_raw(uninitialized) as *mut AllocationInner<T>);
+
             (Allocation::erase(ptr), ptr)
         };
 
         self.head.set(Some(alloc));
         ptr
+    }
+
+    fn trace(&self, alloc: Allocation) {
+        let header = alloc.header();
+
+        if matches!(header.color(), GcColor::White | GcColor::WhiteWeak) {
+            if header.needs_trace() {
+                // A white traceable object is not the grey queue already.
+                // Thus it becomes grey and enters it.
+                header.set_color(GcColor::Grey);
+                debug_assert!(header.is_live());
+                self.grey.borrow_mut().push(alloc);
+            } else {
+                // A white object that doesn't need tracing becomes black.
+                header.set_color(GcColor::Black);
+            }
+        }
+    }
+
+    fn trace_weak(&self, alloc: Allocation) {
+        let header = alloc.header();
+
+        if header.color() == GcColor::White {
+            header.set_color(GcColor::WhiteWeak);
+        }
+    }
+
+    fn do_collection<R: Managed>(&self, root: &R) {
+        let visitor = self.visitor_context();
+        root.trace(visitor);
+
+        // While the grey queue isn't empty, pop one, trace it and turn it black.
+        // Once the queue is empty, we've traced all reachable objects.
+        while let Some(grey) = self.grey.borrow_mut().pop() {
+            // To prevent incomplete tracing if `Managed::trace` panics, use a drop guard to
+            // push it back onto the grey queue. This only delays the problem
+            // until the next collection but it should be sufficient for the
+            // application to resolve the problem.
+            struct DropGuard<'a> {
+                state: &'a State,
+                alloc: Allocation,
+            }
+
+            impl<'a> Drop for DropGuard<'a> {
+                fn drop(&mut self) {
+                    self.state.grey.borrow_mut().push(self.alloc);
+                }
+            }
+
+            let guard = DropGuard {
+                state: self,
+                alloc: grey,
+            };
+            let header = grey.header();
+            debug_assert!(header.is_live());
+            unsafe {
+                grey.trace_value(visitor);
+            }
+            header.set_color(GcColor::Black);
+            mem::forget(guard);
+        }
+
+        // We copy the allocation list in `self.head` here. Any allocations made during
+        // the sweep phase will be added to `self.head` but not to to `sweep`.
+        // This ensures we keep allocations alive until we've had a chance to trace them.
+        let mut sweep = self.head.get();
+        let mut sweep_prev: Option<Allocation> = None;
+
+        while let Some(mut curr) = sweep {
+            let curr_header = curr.header();
+            let next = curr_header.next();
+            sweep = next;
+
+            match curr_header.color() {
+                // If the next object in the sweep subsection of the allocation list is white,
+                // we need to remove it from the main object list and remove it.
+                GcColor::White => {
+                    if let Some(prev) = sweep_prev {
+                        prev.header().set_next(next);
+                    } else {
+                        // If `sweep_prev` is None, then the sweep pointer is also the
+                        // beginning of the main object list, so we need to adjust it.
+                        debug_assert_eq!(self.head.get(), sweep);
+                        self.head.set(next);
+                    }
+
+                    // SAFETY: At this point, the object is white and wasn't traced by a weak pointer
+                    // during this cycle, meaning it is not reachable, so we can free the allocation.
+                    unsafe {
+                        free_alloc(curr);
+                    }
+                }
+                GcColor::WhiteWeak => {
+                    // Keep the allocation and let it remain in the allocation list if we traced
+                    // weak pointer to it. This is because the weak pointer needs to access the
+                    // allocation header to check if the object is still alive. We can only deallocate
+                    // the memory once there are no weak pointers left.
+
+                    sweep_prev = Some(curr);
+                    curr_header.set_color(GcColor::White);
+
+                    // Only drop the object if it wasn't dropped previously.
+                    if curr_header.is_live() {
+                        curr_header.set_live(false);
+
+                        // SAFETY: Since the object is white, there are no strong pointers to this object
+                        // and only weak ones. Since those perform a check on access, we can drop the
+                        // contents of the allocation.
+                        unsafe {
+                            curr.drop_in_place();
+                        }
+                    }
+                }
+                GcColor::Black => {
+                    // There are strong pointers to this object, so we need to keep it alive.
+                    sweep_prev = Some(curr);
+                    curr_header.set_color(GcColor::White);
+                }
+                GcColor::Grey => debug_assert!(false, "unexpected gray object in sweep list"),
+            }
+        }
     }
 }
 
@@ -85,7 +207,7 @@ impl Drop for State {
                     let mut drop_resume = DropAll(Some(gc_box));
                     while let Some(gc_box) = drop_resume.0.take() {
                         drop_resume.0 = gc_box.header().next();
-                        // SAFETY: the state owns its GC'd objects
+                        // SAFETY: The state owns its managed objects.
                         unsafe { free_alloc(gc_box) }
                     }
                 }
