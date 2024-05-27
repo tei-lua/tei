@@ -18,7 +18,7 @@ pub(super) struct Allocation(NonNull<AllocationInner<()>>);
 impl Allocation {
     /// Erases a pointer to a typed GC object.
     ///
-    /// **SAFETY:** The pointer must point to a valid `AllocationInner`.`
+    /// **SAFETY:** The pointer must point to a valid `AllocationInner`.
     pub(super) unsafe fn erase<T: ?Sized>(ptr: NonNull<AllocationInner<T>>) -> Self {
         // This cast is sound because `AllocationInner` is `repr(C)`.
         let erased = ptr.as_ptr() as *mut AllocationInner<()>;
@@ -206,6 +206,18 @@ where
 
     /// The typed value stored in this `Allocation`.
     pub(super) value: ManuallyDrop<T>,
+}
+
+impl<T: ?Sized> AllocationInner<T> {
+    pub(crate) fn new(header: AllocationHeader, t: T) -> Self
+    where
+        T: Managed + Sized,
+    {
+        Self {
+            header,
+            value: ManuallyDrop::new(t),
+        }
+    }
 }
 
 // Phantom type that holds a lifetime and ensures that it is invariant.

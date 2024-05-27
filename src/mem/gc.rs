@@ -1,5 +1,5 @@
 use super::managed::Managed;
-use super::ptr::{AllocationInner, Invariant};
+use super::types::{AllocationInner, Invariant};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
