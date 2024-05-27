@@ -29,10 +29,11 @@ pub struct Finalization<'gc> {
 
 // TODO: add metrics for invoking GC
 // TODO: add tracing (see phaseguard)
-// TODO: finalizers?
+// TODO: finalizers? probably needs to modify can_upgrade and add phase tracking.
 pub(super) struct State {
     head: Cell<Option<Allocation>>,
     grey: RefCell<Vec<Allocation>>,
+    is_sweeping: Cell<bool>,
 }
 
 impl State {
@@ -40,6 +41,7 @@ impl State {
         Self {
             head: Cell::new(None),
             grey: RefCell::new(Vec::new()),
+            is_sweeping: Cell::new(false),
         }
     }
 
@@ -75,6 +77,10 @@ impl State {
         ptr
     }
 
+    fn can_upgrade(&self, alloc: Allocation) -> bool {
+        return alloc.header().is_live();
+    }
+
     fn trace(&self, alloc: Allocation) {
         let header = alloc.header();
 
@@ -100,7 +106,17 @@ impl State {
         }
     }
 
-    fn do_collection<R: Managed>(&self, root: &R) {
+    fn rescurrect(&self, alloc: Allocation) {
+        let header = alloc.header();
+        debug_assert!(header.is_live());
+
+        if matches!(header.color(), GcColor::White | GcColor::WhiteWeak) {
+            header.set_color(GcColor::Grey);
+            self.grey.borrow_mut().push(alloc);
+        }
+    }
+
+    fn do_mark<R: Managed>(&self, root: &R) {
         let visitor = self.visitor_context();
         root.trace(visitor);
 
@@ -134,7 +150,9 @@ impl State {
             header.set_color(GcColor::Black);
             mem::forget(guard);
         }
+    }
 
+    fn do_sweep(&self) {
         // We copy the allocation list in `self.head` here. Any allocations made during
         // the sweep phase will be added to `self.head` but not to to `sweep`.
         // This ensures we keep allocations alive until we've had a chance to trace them.
